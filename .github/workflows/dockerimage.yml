@@ -6,8 +6,8 @@ jobs:
   build:    
     runs-on: ubuntu-18.04    
     env:      
-      DOCKER_REGISTRY: kemansel.azurecr.io      
-      DOCKER_IMAGE: kmansel/express-me      
+      DOCKER_REGISTRY: docker.io      
+      DOCKER_IMAGE: hackmonker/m4b-tool
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}  
       DOCKER_TARGET_PLATFORM: linux/arm/v8                 
