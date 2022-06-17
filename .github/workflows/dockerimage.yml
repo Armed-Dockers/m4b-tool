@@ -4,12 +4,12 @@ on:
     branches: [ master ]  
 jobs:   
   build:    
-    runs-on: ubuntu-18.04    
-    env:      
-      DOCKER_REGISTRY: docker.io      
+    runs-on: ubuntu-18.04 
+    env:
+      DOCKER_REGISTRY: docker.io   
       DOCKER_IMAGE: hackmonker/m4b-tool
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}  
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
       DOCKER_TARGET_PLATFORM: linux/arm/v8                 
     steps:    
     - name: Checkout the code       
