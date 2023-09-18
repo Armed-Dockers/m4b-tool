@@ -1,15 +1,44 @@
 # m4b-tool
 `m4b-tool` is a is a wrapper for `ffmpeg` and `mp4v2` to merge, split or and manipulate audiobook files with chapters. Although `m4b-tool` is designed to handle m4b files, nearly all audio formats should be supported, e.g. mp3, aac, ogg, alac and flac.
 
+## Support me via GitHub sponsors
+
+If you are using any of my projects and find them helpful, please consider [donating to support me](https://github.com/sponsors/sandreas). I plan to use the money to support other open source projects or charitable purposes. Thank you!
+
+### Current monthly sponsors  `>= 25.00$`
+
+Special thanks to all sponsors donating a monthly amount of `>= 25.00$`.
+
+| Name                                  | Amount |
+|---------------------------------------|--------|
+| [numinit](https://github.com/numinit) | 25.00$ |
+
+### Become a sponsor
+<p>
+<a href="https://github.com/sponsors/sandreas"><img src="./assets/help.svg" width="200" alt="sponsor me and donate" style="margin:auto;"></a>
+</p>
+
+## Usage with Nix
+
+Get [Nix](https://nixos.org/download.html) and ensure that [Flakes](https://nixos.wiki/wiki/Flakes#Permanent) are enabled.
+
+- Running: `nix run github:sandreas/m4b-tool` or `nix run github:sandreas/m4b-tool#m4b-tool-libfdk`
+    - The latter will build FFMpeg using libfdk_aac, which will take longer.
+- Building: `nix build github:sandreas/m4b-tool` or `nix build github:sandreas/m4b-tool#m4b-tool-libfdk`
+    - Wrapper script is located at `./result/bin/m4b-tool`
+- Developing: Clone and `nix develop`
+    - When done updating dependencies, run `composer2nix --executable --composition=composer.nix` to update the .nix files
+
 ## Announcement
 
-A few months ago I noticed, that using `PHP` as programming language is a limiting factor for `m4b-tool` and its further development. Multiple dependencies (`php`, `ffmpeg`, `mp4v2`, `fdkaac` and others) make it quite hard to improve the user experience. So I started an experiment, that now has reached an early alpha level and can be tried out. The command line tool is written in `C#`, fully open source and is called `tone`. It already has a pretty decent feature set, so if you would like to try it, here it is:
+I started an experiment, that now has reached an early alpha level and can be tried out. The command line tool is written in `C#`, fully open source and is called `tone`. It already has a pretty decent feature set, so if you would like to try it, here it is:
 
 https://github.com/sandreas/tone
 
 This announcement does NOT mean, that `m4b-tool` is deprecated or will be soon. The development of `m4b-tool` will go on (at least until tone has a feature-set similar to `m4b-tool`). It's just to have an alternative tool for features, that may have limitations.
 
 Have fun, can't wait to get your feedback.
+
 
 ## ❗❗❗Important Note❗❗❗
 Unfortunately I am pretty busy at the moment, so `m4b-tool 0.4.2` is very old. Since it is not planned to release a
@@ -158,9 +187,31 @@ If you performed the above steps with the docker image or installed and compiled
 
 ### Docker
 
-To use docker with `m4b-tool`, you first have to build a custom image located in the `docker` directory. Since this image is compiling every third party library from scratch to get the best possible audio quality, it can take a long time for the first build.
+To use docker with `m4b-tool`, you first have to
+- `pull` the official docker image (recommended)
+- or `build` the `Dockerfile` in the main directory
 
-> Note: You should know that `build` does not mean that `m4b-tool` is being compiled from source. That indeed is strange, but unlike other projects, the `m4b-tool` docker image only *downloads* the latest binary release unless you do some extra work (see below).
+
+#### Official image
+
+The *official* docker images are available on [DockerHub](https://hub.docker.com/repository/docker/sandreas/m4b-tool/tags?page=1&ordering=name). They are somewhat experimental, but have proven to work well. The `latest` tag is considered as *way to go* with the bleeding edge features and fixes. Every now and then a dated tag is published (e.g. `sandreas/m4b-tool:2022-09-25`), that is considered as *pretty* stable, to ensure a broken `latest` image will not break your whole setup.
+
+```
+# pull the image
+docker pull sandreas/m4b-tool:latest
+
+# create an alias for m4b-tool running docker
+alias m4b-tool='docker run -it --rm -u $(id -u):$(id -g) -v "$(pwd)":/mnt sandreas/m4b-tool:latest'
+
+# testing the command
+m4b-tool --version
+```
+
+> Note: If you use the alias above, keep in mind that you cannot use absolute paths (e.g. `/tmp/data/audiobooks/harry potter 1`) or symlinks. You must change into the directory and use relative paths (e.g. `cd /tmp/data && m4b-tool merge "audiobooks/harry potter 1" --output-file harry.m4b`)
+
+#### Build manually or use a specific release version
+
+To manually build a docker container for a specific `m4b-tool` release, it is required to provide an extra parameter for downloading a specific version into the image, e.g. for `v.0.4.1`:
 
 ```
 # clone m4b-tool repository
@@ -177,17 +228,9 @@ alias m4b-tool='docker run -it --rm -u $(id -u):$(id -g) -v "$(pwd)":/mnt m4b-to
 
 # testing the command
 m4b-tool --version
-```
 
-
-> Note: If you use the alias above, keep in mind that you cannot use absolute paths (e.g. `/tmp/data/audiobooks/harry potter 1`) or symlinks. You must change into the directory and use relative paths (e.g. `cd /tmp/data && m4b-tool merge "audiobooks/harry potter 1" --output-file harry.m4b`)
-
-#### Dockerize a *Pre-Release* or an older release version
-
-To build a docker container using a *Pre-Release* or an older `m4b-tool` release, it is required to provide an extra parameter for downloading a specific version into the image, e.g. for `v.0.4.1`:
-
-```
-docker build . --build-arg M4B_TOOL_DOWNLOAD_LINK=https://github.com/sandreas/m4b-tool/releases/download/v.0.4.1/m4b-tool.tar.gz -t m4b-tool
+# use the specific pre-release from 2022-07-16
+docker build . --build-arg M4B_TOOL_DOWNLOAD_LINK=https://github.com/sandreas/m4b-tool/files/9125095/m4b-tool.tar.gz -t m4b-tool
 ```
 
 > Note: You could also just edit the according variable in the `Dockerfile`.
@@ -521,16 +564,18 @@ If you use the `--batch-pattern` parameter, the following placeholders are suppo
 - `album`: `%m`,
 - `sort_album`: `%M`,
 - `artist`: `%a`,
-- `sort_artist`: `%a`,
+- `sort_artist`: `%A`,
 - `genre`: `%g`,
 - `writer`: `%w`,
 - `album_artist`: `%t`,
 - `year`: `%y`,
 - `description`: `%d`,
-- `long_description`: `%d`,
+- `long_description`: `%D`,
 - `comment`: `%c`,
-- `copyright`: `%c`,
+- `copyright`: `%C`,
 - `encoded_by`: `%e`,
+- `group(ing)`: `%G`,
+- `purchase_date`: `%U`,
 - `series`: `%s`,
 - `series_part`: `%p`,
 
@@ -874,7 +919,7 @@ build
 ```
 
 
-## ![#f03c15](https://placehold.it/15/f03c15/000000?text=+) Request for help - especially german users
+## ![#f03c15](https://via.placeholder.com/15/f03c15/000000?text=+) Request for help - especially german users
 Right now, I'm experimenting with speech recognition and *speech to text* using [this project](https://github.com/gooofy/zamia-speech)
 
 This is for a feature to automatically add chapter names by speech recognition. I'm not sure this will be ever working as expected, but right now I'm pretty confident, it is possible to do the following, if there are enough speech samples in a specific language:

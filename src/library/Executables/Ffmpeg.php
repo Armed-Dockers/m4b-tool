@@ -26,6 +26,7 @@ use Symfony\Component\Process\Process;
 class Ffmpeg extends AbstractFfmpegBasedExecutable implements TagReaderInterface, TagWriterInterface, DurationDetectorInterface, FileConverterInterface
 {
     use LogTrait, CacheAdapterTrait;
+
     const AAC_FALLBACK_CODEC = "aac";
     const AAC_BEST_QUALITY_NON_FREE_CODEC = "libfdk_aac";
     const FFMETADATA_PROPERTY_MAPPING = [
@@ -146,7 +147,7 @@ class Ffmpeg extends AbstractFfmpegBasedExecutable implements TagReaderInterface
         }
 
         if ($process->getExitCode() > 0) {
-            throw new Exception(sprintf("Could not write tag for file %s: %s (%s)", $file, $process->getErrorOutput(), $process->getExitCode()));
+            throw new Exception(sprintf("Could not write tag for file %s: %s (%s)", $file, ltrim($process->getOutput() . PHP_EOL . $process->getErrorOutput()), $process->getExitCode()));
         }
 
         if (!$outputFile->isFile()) {
@@ -623,6 +624,8 @@ class Ffmpeg extends AbstractFfmpegBasedExecutable implements TagReaderInterface
                 $command[] = "-map";
                 $command[] = "a";
             }
+            $command[] = "-map_chapters";
+            $command[] = "-1";
             $command[] = "-acodec";
             $command[] = "copy";
 
@@ -634,7 +637,7 @@ class Ffmpeg extends AbstractFfmpegBasedExecutable implements TagReaderInterface
 
             $process = $this->ffmpegQuiet($command);
             if ($process->getExitCode() > 0) {
-                throw new Exception(sprintf("Could not extract part of file %: %s (%s)", $inputFile, $process->getErrorOutput(), $process->getExitCode()));
+                throw new Exception(sprintf("Could not extract part of file %s: %s (%s)", $inputFile, $process->getErrorOutput(), $process->getExitCode()));
             }
             if ($options->noConversion) {
                 if (!rename($tmpOutputFileConverting, $outputFile)) {

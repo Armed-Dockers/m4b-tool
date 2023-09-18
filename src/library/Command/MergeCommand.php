@@ -16,6 +16,7 @@ use M4bTool\Audio\Tag\Ffmetadata;
 use M4bTool\Audio\Tag\InputOptions;
 use M4bTool\Audio\Tag\OpenPackagingFormat;
 use M4bTool\Audio\Tag\TagImproverComposite;
+use M4bTool\Audio\Tag\TagInterface;
 use M4bTool\Chapter\ChapterGroup\ChapterLengthCalculator;
 use M4bTool\Chapter\ChapterHandler;
 use M4bTool\Common\ConditionalFlags;
@@ -27,6 +28,7 @@ use M4bTool\Parser\MusicBrainzChapterParser;
 use RecursiveDirectoryIterator;
 use Sandreas\Strings\Format\FormatParser;
 use Sandreas\Strings\Format\PlaceHolder;
+use Sandreas\Strings\Strings;
 use Sandreas\Time\TimeUnit;
 use SplFileInfo;
 use Symfony\Component\Console\Input\InputArgument;
@@ -41,6 +43,7 @@ class MergeCommand extends AbstractConversionCommand
     const ARGUMENT_MORE_INPUT_FILES = "more-input-files";
     const OPTION_INCLUDE_EXTENSIONS = "include-extensions";
     const OPTION_BATCH_PATTERN = "batch-pattern";
+    const OPTION_BATCH_PATTERN_PATH = "batch-pattern-path";
     const OPTION_BATCH_FILTER = "batch-filter";
     const OPTION_BATCH_RESUME_FILE = "batch-resume-file";
     const OPTION_DRY_RUN = "dry-run";
@@ -81,7 +84,6 @@ class MergeCommand extends AbstractConversionCommand
         self::OPTION_TAG_PURCHASE_DATE => "U",
         self::OPTION_TAG_SERIES => "s",
         self::OPTION_TAG_SERIES_PART => "p",
-
         // "c" => self::OPTION_TAG_COVER, // cover cannot be string
     ];
 
@@ -125,6 +127,7 @@ class MergeCommand extends AbstractConversionCommand
         $this->addOption(static::OPTION_MUSICBRAINZ_ID, "m", InputOption::VALUE_REQUIRED, "musicbrainz id so load chapters from");
 
         $this->addOption(static::OPTION_BATCH_PATTERN, null, InputOption::VALUE_OPTIONAL | InputOption::VALUE_IS_ARRAY, "multiple batch patterns that can be used to merge all audio books in a directory matching the given patterns (e.g. %a/%t for author/title) - parameter --output-file must be a directory", []);
+        $this->addOption(static::OPTION_BATCH_PATTERN_PATH, null, InputOption::VALUE_OPTIONAL, "optional base path for batch pattern, that is used to trim output paths instead of auto trimming");
         $this->addOption(static::OPTION_BATCH_FILTER, null, InputOption::VALUE_OPTIONAL, "Skip files that do not contain this string", "");
         $this->addOption(static::OPTION_BATCH_RESUME_FILE, null, InputOption::VALUE_OPTIONAL, "Enables you to resume a interrupted batch encoding process by skipping all items in this file and appending currently processed output files", "");
         $this->addOption(static::OPTION_DRY_RUN, null, InputOption::VALUE_NONE, "perform a dry run without converting all the files in batch mode (requires --" . static::OPTION_BATCH_PATTERN . ")");
@@ -138,7 +141,6 @@ class MergeCommand extends AbstractConversionCommand
 
         $this->addOption(static::OPTION_CHAPTER_NO_REINDEXING, null, InputOption::VALUE_NONE, "Do not perform any reindexing for index-only chapter names (by default m4b-tool will try to detect index-only chapters like Chapter 1, Chapter 2 and reindex it with its numbers only)");
         $this->addOption(static::OPTION_PREPEND_SERIES_TO_LONGDESC, null, InputOption::VALUE_NONE, "Prepend series and part to description, if available (e.g. Thrawn 1: Thrawn and the Philosopher's Stone is a...) - this option is mainly meant for iPods not showing the series or part in the listing");
-
         $this->addOption(static::OPTION_EQUATE, null, InputOption::VALUE_OPTIONAL | InputOption::VALUE_IS_ARRAY, sprintf("Forces the same value for specific tag fields (e.g. --%s=artist,albumartist,sortArtist takes value of artist and forces albumartist and sortartist to contain the same value)", static::OPTION_EQUATE), []);
     }
 
@@ -255,13 +257,13 @@ class MergeCommand extends AbstractConversionCommand
             static::DEFAULT_SUPPORTED_IMAGE_EXTENSIONS,
             static::DEFAULT_SUPPORTED_DATA_EXTENSIONS
         )), $this->alreadyProcessedBatchDirs);
-        $normalizedBatchPattern = $this->normalizeDirectory($batchPattern, "");
+        $normalizedBatchPattern = static::normalizeDirectory($batchPattern, "");
 
         $verifiedDirectories = [];
         foreach ($currentBatchDirs as $baseDir) {
             $placeHolders = static::createPlaceHoldersForOptions();
             $formatParser = new FormatParser(...$placeHolders);
-            $patternDir = $this->normalizeDirectory($baseDir, "");
+            $patternDir = static::normalizeDirectory($baseDir, "");
             if ($formatParser->parseFormat($normalizedBatchPattern, $patternDir)) {
                 $verifiedDirectories[$baseDir] = $formatParser;
                 $this->alreadyProcessedBatchDirs[] = $baseDir;
@@ -275,12 +277,26 @@ class MergeCommand extends AbstractConversionCommand
             $this->notice("================================");
         }
 
+        $batchPatternBasePath = $input->getOption(static::OPTION_BATCH_PATTERN_PATH);
+
 
         $batchJobs = [];
         foreach ($verifiedDirectories as $baseDir => $formatParser) {
             // clone input to work with current directory instead of existing data from an old directory
             $clonedInput = clone $input;
-            $trimmedBatchPattern = $formatParser->trimSeparatorPrefix($batchPattern);
+
+            if($batchPatternBasePath !== null) {
+                if(!Strings::hasPrefix($batchPattern, $batchPatternBasePath)) {
+                    $this->warning(sprintf("batch-pattern %s does NOT start with %s - this may result in unexpected results", $batchPattern, $batchPatternBasePath));
+                }
+                $trimmedBatchPattern = Strings::trimPrefix($batchPattern, $batchPatternBasePath);
+            } else {
+                $trimmedBatchPattern = $formatParser->trimSeparatorPrefix($batchPattern);
+
+            }
+
+            $this->notice(sprintf("basePath: %s, trimmed batch-pattern: %s", $batchPatternBasePath ?? "<null>", $trimmedBatchPattern));
+
 
             $fileNamePart = rtrim($formatParser->format($trimmedBatchPattern), "\\/");
 
@@ -288,8 +304,9 @@ class MergeCommand extends AbstractConversionCommand
             $title = $formatParser->format("%n");
             $album = $formatParser->format("%m");
             $m4bFileName = $title ? $title : $album;
-            if ($m4bFileName && !$formatParser->getPlaceHolderValue(static::MAPPING_OPTIONS_PLACEHOLDERS[static::OPTION_TAG_SERIES])) {
+            if ($m4bFileName && !$formatParser->getPlaceHolderValue(static::MAPPING_OPTIONS_PLACEHOLDERS[static::OPTION_TAG_SERIES_PART])) {
                 $fileNamePart .= "/" . $m4bFileName;
+                $this->notice(sprintf("series-part is empty, using containing directory: %s", $fileNamePart));
             }
 
             $batchOutputFile = $outputFile . "/" . $fileNamePart . "." . $this->optAudioExtension;
@@ -330,17 +347,6 @@ class MergeCommand extends AbstractConversionCommand
                 $extraExtensions
             )
         );
-    }
-
-    protected function normalizeDirectory($directory, $suffix = "/")
-    {
-        $normalized = rtrim(strtr($directory, [
-            "\\" => "/",
-        ]), "/");
-        if ($normalized !== "") {
-            $normalized .= $suffix;
-        }
-        return $normalized;
     }
 
     /**
@@ -528,14 +534,23 @@ class MergeCommand extends AbstractConversionCommand
 
         $outputTempFile = $this->mergeFiles();
 
+        $outputTag = $this->tagMergedFile($outputTempFile);
+        $originalOutputFile = $this->outputFile;
+        if($this->optFilenameTemplate !== null) {
+            $parameters = (array)$outputTag;
+            $parameters["outputPath"] = rtrim($this->outputFile->getPath(), DIRECTORY_SEPARATOR."/").DIRECTORY_SEPARATOR;
+            $parameters["outputFile"] = (string)$this->outputFile;
+            $parameters["outputExtension"] = $this->outputFile->getExtension();
 
-        $this->tagMergedFile($outputTempFile);
-
+            // original outputFile has to be overwritten with Template generated one
+            $this->outputFile = new SplFileInfo($this->buildFileName($this->optFilenameTemplate, $this->optAudioExtension, $parameters));
+        }
         $this->moveFinishedOutputFile($outputTempFile, $this->outputFile);
 
         $this->storeOutputFileToResumeFile($this->outputFile);
 
-        $this->deleteTemporaryFiles();
+
+        $this->deleteTemporaryFiles($originalOutputFile);
 
         $this->notice(sprintf("successfully merged %d files to %s", count($this->filesToMerge), $this->outputFile));
         if ($this->optDebug) {
@@ -710,15 +725,16 @@ class MergeCommand extends AbstractConversionCommand
      * @return string
      * @throws Exception
      */
-    private function createOutputTempDir()
+    private function createOutputTempDir($outputFile=null)
     {
+        $outputFile ??= $this->outputFile;
         if ($this->optTmpDir) {
-            $dir = $this->normalizeDirectory($this->optTmpDir);
+            $dir = static::normalizeDirectory($this->optTmpDir);
         } else {
-            $basename = $this->outputFile->getBasename("." . $this->outputFile->getExtension());
+            $basename = $outputFile->getBasename("." . $outputFile->getExtension());
             $basename = $basename === "" ? "m4b-tool" : $basename;
 
-            $dir = $this->outputFile->getPath() ? $this->outputFile->getPath() . DIRECTORY_SEPARATOR : "";
+            $dir = $outputFile->getPath() ? $outputFile->getPath() . DIRECTORY_SEPARATOR : "";
             $dir .= $basename . "-tmpfiles" . DIRECTORY_SEPARATOR;
         }
 
@@ -768,8 +784,12 @@ class MergeCommand extends AbstractConversionCommand
      */
     private function mergeFiles()
     {
+        if($this->outputFile->getExtension() === "") {
+            $this->warning(sprintf("!!! output file %s has no specified file extension, this may lead to problems during conversion !!!", $this->outputFile));
+        }
         $outputTempFile = new SplFileInfo($this->createOutputTempDir() . "tmp_" . $this->outputFile->getBasename());
-        if ($this->optAudioExtension !== $outputTempFile->getExtension()) {
+
+        if (trim($this->optAudioExtension) !== $outputTempFile->getExtension()) {
             $outputTempFile = new SplFileInfo($this->createOutputTempDir() . "tmp_" . $this->outputFile->getBasename($this->outputFile->getExtension()) . $this->optAudioExtension);
         }
 
@@ -784,6 +804,7 @@ class MergeCommand extends AbstractConversionCommand
 
     /**
      * @param SplFileInfo $outputTmpFile
+     * @return Tag
      * @throws Exception
      */
     private function tagMergedFile(SplFileInfo $outputTmpFile)
@@ -905,6 +926,9 @@ class MergeCommand extends AbstractConversionCommand
         if (!$this->input->getOption(static::OPTION_IGNORE_SOURCE_TAGS)) {
             $sourceFilesTag = $this->loadTagFromFirstSourceFile();
             if ($sourceFilesTag instanceof Tag) {
+                // reset track and tracks, since this is not valid for a merge of ONE file
+                $tag->track = null;
+                $tag->tracks = null;
                 $tag->mergeMissing($sourceFilesTag);
             }
         }
@@ -912,6 +936,7 @@ class MergeCommand extends AbstractConversionCommand
 
         $this->tagFile($outputTmpFile, $tag, $flags);
         $this->notice(sprintf("tagged file %s (artist: %s, name: %s, chapters: %d)", $outputTmpFile->getBasename(), $tag->artist, $tag->title, count($tag->chapters)));
+        return $tag;
     }
 
     /**
@@ -966,7 +991,7 @@ class MergeCommand extends AbstractConversionCommand
         file_put_contents($this->resumeFile, $outputFile . PHP_EOL, FILE_APPEND);
     }
 
-    private function deleteTemporaryFiles()
+    private function deleteTemporaryFiles($originalOutputFile)
     {
         if ($this->optDebug) {
             return;
@@ -976,7 +1001,7 @@ class MergeCommand extends AbstractConversionCommand
 
         if ($this->input->getOption(static::OPTION_NO_CONVERSION)) {
             try {
-                @rmdir($this->createOutputTempDir());
+                @rmdir($this->createOutputTempDir($originalOutputFile));
             } catch (Exception $e) {
                 // ignore
             }
@@ -1014,5 +1039,11 @@ class MergeCommand extends AbstractConversionCommand
         return true;
     }
 
+    protected function buildTagFlags()
+    {
+        $flags = parent::buildTagFlags();
+        $flags->insertIf(TagInterface::FLAG_PREPEND_SERIES_TO_LONGDESC, $this->input->getOption(static::OPTION_PREPEND_SERIES_TO_LONGDESC));
+        return $flags;
+    }
 
 }
